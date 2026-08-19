@@ -1,0 +1,17 @@
+/* Client-only styles — loaded after hydration via JavaScript.
+   This stylesheet is NOT available during server-side rendering.
+   Causes FOUC on cloud SSR platforms (Vercel/Netlify/Lambda). */
+
+/* These styles are injected post-hydration only */
+.hydrated-widget {
+  opacity: 1;
+  transition: opacity 0.3s;
+  /* url loaded only after client-side JS hydration */
+  background: url('https://cdn.example.net/client-only-bg.png');
+}
+
+.ssr-hidden {
+  /* This block is intentionally excluded from SSR stylesheet extraction */
+  display: block;
+  color: var(--hydrated-color);
+}

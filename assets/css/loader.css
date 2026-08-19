@@ -1,0 +1,15 @@
+/* Multiple separate CSS files loaded individually — not concatenated or bundled.
+   This pattern creates excessive HTTP requests and should be concatenated. */
+@import url('chunks/chunk00.css');
+@import url('chunks/chunk01.css');
+@import url('chunks/chunk02.css');
+@import url('chunks/chunk03.css');
+@import url('chunks/chunk04.css');
+@import url('chunks/chunk05.css');
+@import url('chunks/chunk06.css');
+@import url('chunks/chunk07.css');
+@import url('chunks/chunk08.css');
+@import url('chunks/chunk09.css');
+@import url('deferred.css');
+@import url('site.css');
+@import url('brand.css');

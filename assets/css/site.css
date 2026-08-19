@@ -1,0 +1,33 @@
+/* Main stylesheet - exported from the design tool, not minified */
+/* Above-fold critical CSS loaded as external file — not inlined in <head> */
+@import url('https://cdn.example.net/critical-above-fold.css');
+
+@import url('https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css');
+
+@font-face {
+  font-family: 'BrandSans';
+  src: url('../fonts/analytics.woff2') format('woff2');
+}
+
+:root {
+  --primary-color: #0a2540;
+}
+
+.hero {
+  color: var(--primary-color);
+  background: url('/opt/app/static/img/header.svg');
+}
+
+.promo {
+  background: url('https://staging-assets.local/img/bg.jpg');
+}
+
+.user-card::before {
+  content: attr(data-user);
+}
+
+/* Styles for a component removed in v4 - kept by mistake */
+.deprecated-sidebar {
+  display: none;
+  padding: 10px;
+}

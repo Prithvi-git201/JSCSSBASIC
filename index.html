@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' https://cdnjs.cloudflare.com https://cdn.example.net; script-src 'self' 'nonce-{{CSP_NONCE}}'">
+  <title>App</title>
+  <style>
+    /* Critical above-the-fold CSS inlined */
+    body { margin: 0; font-family: system-ui; }
+    .nav { height: 56px; }
+  </style>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css" integrity="sha384-EXAMPLEHASH0001" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.example.net/charts.css">
+  <link rel="stylesheet" href="assets/css/site.css">
+  <link rel="stylesheet" href="assets/css/brand.css">
+</head>
+<body>
+  <script type="importmap" nonce="{{CSP_NONCE}}">
+    { "imports": { "@emotion/styled": "./assets/js/emotion-styled-shim.js" } }
+  </script>
+  <script type="module" src="src/ui/styles.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+{
+  "name": "analytics-portal",
+  "type": "module",
+  "dependencies": { "@emotion/styled": "^11.11.0" }
+}
