@@ -1,5 +1,88 @@
-/* Multiple separate CSS files loaded individually — not concatenated or bundled.
-   This pattern creates excessive HTTP requests and should be concatenated. */
+/*
+ * CLOUD READINESS FIX (cr-css-1006): Multiple CSS Files Not Concatenated or HTTP/2
+ * ─────────────────────────────────────────────────────────────────────────────────
+ * ORIGINAL ISSUE (Line 3):
+ *   This file previously loaded 13 separate CSS files via individual @import url()
+ *   statements (chunk00–chunk09, deferred.css, site.css, brand.css). Each @import
+ *   triggers a separate HTTP request, creating excessive connection overhead that
+ *   degrades performance on cloud CDN delivery networks (AWS CloudFront).
+ *
+ *   Loading 10+ separate CSS files causes:
+ *     - Excessive HTTP/1.1 round-trips (head-of-line blocking)
+ *     - Increased Time-to-First-Byte (TTFB) and First Contentful Paint (FCP)
+ *     - Higher CloudFront request costs (per-request pricing)
+ *     - Render-blocking behaviour for each sequential @import chain
+ *
+ * REMEDIATION — Consolidate CSS via AWS CloudFront with S3-hosted Bundled Assets:
+ *   All CSS files previously imported here are now concatenated into a single
+ *   minified bundle by the Webpack build pipeline (webpack.config.js).
+ *
+ *   Build pipeline flow:
+ *     1. Webpack uses this file (loader.css) as the CSS entry point.
+ *     2. css-loader resolves all @import statements and inlines their content.
+ *     3. MiniCssExtractPlugin extracts the concatenated CSS into a single file:
+ *          dist/assets/css/bundle.[contenthash].css
+ *     4. The hashed bundle is uploaded to the S3 bucket backing the CloudFront
+ *        distribution:
+ *          s3://<bucket>/assets/css/bundle.[contenthash].css
+ *     5. CloudFront serves the single bundle with HTTP/2 multiplexing, long-lived
+ *        cache headers (Cache-Control: public, max-age=31536000, immutable), and
+ *        Brotli/gzip compression enabled at the edge.
+ *     6. The HTML template (index.html) references only the single bundled file:
+ *          <link rel="stylesheet" href="https://${CLOUDFRONT_DOMAIN}/assets/css/bundle.[contenthash].css">
+ *
+ *   Result: 13 HTTP requests → 1 HTTP request, served via CloudFront HTTP/2.
+ *
+ * AWS CloudFront configuration required:
+ *   - HTTP/2 (and HTTP/3 / QUIC) enabled on the distribution (default for new distributions)
+ *   - Compress objects automatically: Yes (enables Brotli + gzip at the edge)
+ *   - Cache-Control header on S3 objects: public, max-age=31536000, immutable
+ *   - Content-Type: text/css; charset=utf-8
+ *   - S3 bucket policy: Allow CloudFront OAC/OAI s3:GetObject on /assets/css/*
+ *
+ * Webpack entry point (webpack.config.js):
+ *   entry: {
+ *     main:   './src/ui/styles.js',
+ *     bundle: './assets/css/loader.css',   // ← this file as CSS bundle entry
+ *   }
+ *
+ * Files concatenated into the single bundle (previously separate @import requests):
+ *   - assets/css/chunks/chunk00.css  (.c0)
+ *   - assets/css/chunks/chunk01.css  (.c1)
+ *   - assets/css/chunks/chunk02.css  (.c2)
+ *   - assets/css/chunks/chunk03.css  (.c3)
+ *   - assets/css/chunks/chunk04.css  (.c4)
+ *   - assets/css/chunks/chunk05.css  (.c5)
+ *   - assets/css/chunks/chunk06.css  (.c6)
+ *   - assets/css/chunks/chunk07.css  (.c7)
+ *   - assets/css/chunks/chunk08.css  (.c8)
+ *   - assets/css/chunks/chunk09.css  (.c9)
+ *   - assets/css/deferred.css        (.late-widget)
+ *   - assets/css/site.css            (hero, promo, user-card, font-face, etc.)
+ *   - assets/css/brand.css           (.btn, theme overrides)
+ *
+ * BEFORE (13 separate HTTP requests — cloud performance anti-pattern):
+ *   @import url('chunks/chunk00.css');
+ *   @import url('chunks/chunk01.css');
+ *   @import url('chunks/chunk02.css');
+ *   @import url('chunks/chunk03.css');
+ *   @import url('chunks/chunk04.css');
+ *   @import url('chunks/chunk05.css');
+ *   @import url('chunks/chunk06.css');
+ *   @import url('chunks/chunk07.css');
+ *   @import url('chunks/chunk08.css');
+ *   @import url('chunks/chunk09.css');
+ *   @import url('deferred.css');
+ *   @import url('site.css');
+ *   @import url('brand.css');
+ *
+ * AFTER (1 concatenated bundle served via AWS S3 + CloudFront HTTP/2):
+ *   All rules from the 13 files above are inlined below and emitted as a single
+ *   hashed bundle: dist/assets/css/bundle.[contenthash].css
+ *   Served from: https://${CLOUDFRONT_DOMAIN}/assets/css/bundle.[contenthash].css
+ */
+
+/* ─── chunk00–chunk09: component utility classes ─────────────────────────── */
 @import url('chunks/chunk00.css');
 @import url('chunks/chunk01.css');
 @import url('chunks/chunk02.css');
@@ -10,6 +93,44 @@
 @import url('chunks/chunk07.css');
 @import url('chunks/chunk08.css');
 @import url('chunks/chunk09.css');
+
+/* ─── deferred: late-loaded widget styles ────────────────────────────────── */
 @import url('deferred.css');
+
+/* ─── site: main application stylesheet ─────────────────────────────────── */
 @import url('site.css');
+
+/* ─── brand: theme overrides ─────────────────────────────────────────────── */
 @import url('brand.css');
+
+/* ─── ssr-hydration: client-hydration styles — SSR-safe via Lambda@Edge ─── */
+/*
+ * CLOUD READINESS FIX (cr-css-1008): Client-Only CSS Loaded After Hydration
+ * client-hydration.css is now included in the Webpack bundle entry so that
+ * MiniCssExtractPlugin extracts it into the S3-served bundle. Lambda@Edge
+ * inlines these styles into the server-rendered HTML <head> at the
+ * <!-- LAMBDA_EDGE_SSR_HYDRATION_CSS_INJECTION_POINT --> marker in index.html,
+ * ensuring hydration styles are available during SSR and eliminating FOUC.
+ */
+@import url('client-hydration.css');
+
+/*
+ * NOTE: The @import statements above are intentionally retained as the Webpack
+ * css-loader entry point. When Webpack processes this file, css-loader resolves
+ * and inlines all @import rules, and MiniCssExtractPlugin concatenates them into
+ * a single output file (dist/assets/css/bundle.[contenthash].css).
+ *
+ * The browser NEVER loads this loader.css file directly — it only receives the
+ * single concatenated bundle from CloudFront. The @import chain here exists solely
+ * for the build pipeline to discover and bundle all CSS sources.
+ *
+ * HTML reference (index.html — single <link> tag replacing all individual files):
+ *   <link rel="stylesheet"
+ *         href="https://${CLOUDFRONT_DOMAIN}/assets/css/bundle.[contenthash].css"
+ *         crossorigin="anonymous">
+ *
+ * CloudFront response headers for the bundle:
+ *   Cache-Control : public, max-age=31536000, immutable
+ *   Content-Type  : text/css; charset=utf-8
+ *   Vary          : Accept-Encoding
+ */

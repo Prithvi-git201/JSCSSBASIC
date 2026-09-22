@@ -1,5 +1,25 @@
 {
   "name": "analytics-portal",
   "type": "module",
-  "dependencies": { "@emotion/styled": "^11.11.0" }
+  "scripts": {
+    "build": "webpack --config webpack.config.js",
+    "build:dev": "NODE_ENV=development webpack --config webpack.config.js",
+    "build:bundle": "webpack --config webpack.config.js --env bundleCSS=true"
+  },
+  "dependencies": {
+    "@emotion/styled": "^11.11.0"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-ssm": "^3.400.0",
+    "webpack": "^5.88.0",
+    "webpack-cli": "^5.1.4",
+    "css-loader": "^6.8.1",
+    "mini-css-extract-plugin": "^2.7.6",
+    "html-webpack-plugin": "^5.5.3",
+    "postcss": "^8.4.31",
+    "postcss-loader": "^7.3.3",
+    "postcss-replace": "^2.0.1",
+    "purgecss-webpack-plugin": "^5.0.0",
+    "glob": "^10.3.10"
+  }
 }

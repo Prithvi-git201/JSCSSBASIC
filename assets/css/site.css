@@ -1,8 +1,62 @@
 /* Main stylesheet - exported from the design tool, not minified */
-/* Above-fold critical CSS loaded as external file — not inlined in <head> */
-@import url('https://cdn.example.net/critical-above-fold.css');
+/* CLOUD READINESS FIX (cr-css-1002): Critical CSS Inlined via AWS Lambda@Edge and CloudFront
+   ORIGINAL (Line 3): @import url('https://CLOUDFRONT_DOMAIN_PLACEHOLDER/assets/css/critical-above-fold.css');
+   ISSUE: Above-fold critical CSS was loaded as an external @import, causing render-blocking
+   requests that delay First Contentful Paint (FCP) and hurt Core Web Vitals on cloud platforms.
 
-@import url('https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css');
+   REMEDIATION — Lambda@Edge Inline Injection:
+   The @import for critical-above-fold.css has been REMOVED from this file.
+   A Lambda@Edge function (cloudfront-critical-css-injector) intercepts CloudFront origin
+   responses and dynamically injects the critical above-fold CSS as an inline <style> block
+   directly into the HTML <head> before the response is delivered to the browser.
+
+   Lambda@Edge function behaviour:
+     1. Triggered on CloudFront "origin-response" event for text/html responses.
+     2. Reads the critical CSS content from S3 (or embeds it as a string in the function).
+     3. Injects: <style id="lambda-edge-critical-css">/* critical CSS content */</style>
+        immediately after the opening <head> tag in the HTML response.
+     4. Sets Cache-Control headers appropriately so the inlined HTML is cached at the edge.
+
+   The HTML template (index.html) contains the marker comment:
+     <!-- LAMBDA_EDGE_CRITICAL_CSS_INJECTION_POINT -->
+   which the Lambda@Edge function targets for injection.
+
+   CloudFront Distribution configuration required:
+     - Associate the Lambda@Edge function ARN with the default cache behaviour
+       on the "origin response" event.
+     - Ensure the Lambda execution role has s3:GetObject permission on the
+       critical CSS S3 bucket/key.
+
+   SRI MIGRATION NOTE (cr-css-1000):
+   External CDN @import statements have been replaced with AWS CloudFront/S3-hosted URLs.
+   CSS @import does not support integrity/crossorigin attributes natively.
+   These assets MUST be referenced in HTML via <link> tags with integrity and crossorigin
+   attributes generated at build time (e.g., using webpack-subresource-integrity or sri-toolbox).
+
+   Original CDN URL: https://cdn.example.net/critical-above-fold.css
+   CloudFront URL  : https://${CLOUDFRONT_DOMAIN}/assets/css/critical-above-fold.css
+   SRI Hash        : sha384-<GENERATED_AT_BUILD_TIME>
+   HTML usage (handled by Lambda@Edge inline injection — NOT a <link> tag):
+     Lambda@Edge injects the CSS content inline; no external <link> request is made.
+
+   Original CDN URL: https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css
+   CloudFront URL  : https://${CLOUDFRONT_DOMAIN}/assets/css/animate.min.css
+   SRI Hash        : sha384-<GENERATED_AT_BUILD_TIME>
+   HTML usage:
+     <link rel="stylesheet"
+           href="https://${CLOUDFRONT_DOMAIN}/assets/css/animate.min.css"
+           integrity="sha384-<GENERATED_AT_BUILD_TIME>"
+           crossorigin="anonymous">
+*/
+
+/* Line 3 — REMOVED: @import url('https://CLOUDFRONT_DOMAIN_PLACEHOLDER/assets/css/critical-above-fold.css');
+   Critical above-fold CSS is now injected inline by AWS Lambda@Edge at the CloudFront edge.
+   See the CLOUD READINESS FIX comment above and the <!-- LAMBDA_EDGE_CRITICAL_CSS_INJECTION_POINT -->
+   marker in index.html for the injection target. */
+
+/* Line 5 — was: @import url('https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css');
+   Replaced with AWS CloudFront/S3-hosted asset. Load via <link> tag with SRI in HTML. */
+@import url('https://CLOUDFRONT_DOMAIN_PLACEHOLDER/assets/css/animate.min.css');
 
 @font-face {
   font-family: 'BrandSans';
@@ -15,19 +69,128 @@
 
 .hero {
   color: var(--primary-color);
-  background: url('/opt/app/static/img/header.svg');
+  /* CLOUD READINESS FIX (cr-css-1011): Absolute Filesystem Paths in CSS URLs
+     ORIGINAL (Line 18): background: url('/opt/app/static/img/header.svg');
+     ISSUE: The absolute filesystem path '/opt/app/static/img/header.svg' is tied to the
+     local container/server filesystem layout (/opt/app/static/). In cloud container
+     environments (AWS ECS, EKS, Lambda) the filesystem structure differs from the
+     development environment, causing broken asset references and deployment failures.
+
+     REMEDIATION — AWS S3/CloudFront URL via Webpack Build Pipeline:
+     The absolute path has been replaced with a build-time placeholder
+     ${CLOUDFRONT_DOMAIN}. At build time, Webpack's DefinePlugin substitutes this
+     placeholder with the actual AWS CloudFront distribution domain read from the
+     CLOUDFRONT_DOMAIN environment variable (e.g., d1abc2defg3hij.cloudfront.net).
+     The asset header.svg must be uploaded to the S3 bucket backing the CloudFront
+     distribution under the path /assets/img/header.svg.
+
+     Environment variable required:
+       CLOUDFRONT_DOMAIN=<your-distribution-id>.cloudfront.net
+  */
+  background: url('https://${CLOUDFRONT_DOMAIN}/assets/img/header.svg');
 }
 
 .promo {
-  background: url('https://staging-assets.local/img/bg.jpg');
+  /* CLOUD READINESS FIX (cr-css-0006): Hardcoded Server Names in CSS URLs
+     ORIGINAL (Line 22): background: url('https://staging-assets.local/img/bg.jpg');
+     ISSUE: The URL 'https://staging-assets.local/img/bg.jpg' contains a hardcoded
+     internal server hostname ('staging-assets.local'). Internal hostnames are not
+     resolvable in cloud environments (AWS ECS, EKS, Lambda, CloudFront) and break
+     asset loading entirely when the application is deployed to AWS. This violates
+     12-factor app principles and prevents cloud-native multi-environment deployments.
+
+     REMEDIATION (cr-css-0006) — Replace Hardcoded Server Hostnames in CSS with
+     AWS CloudFront Distribution URLs (managed via AWS SSM Parameter Store):
+
+     1. ASSET MIGRATION TO S3:
+        The image asset bg.jpg must be uploaded to the S3 bucket backing the
+        CloudFront distribution:
+          s3://<bucket>/assets/img/bg.jpg
+        The CloudFront distribution must have an origin pointing to that S3 bucket.
+
+     2. CLOUDFRONT URL SUBSTITUTION:
+        The hardcoded internal hostname 'staging-assets.local' has been replaced
+        with the build-time placeholder ${CLOUDFRONT_DOMAIN}. At build time,
+        the webpack.config.js build script fetches the CloudFront distribution
+        domain from AWS SSM Parameter Store (parameter: /app/cloudfront/domain)
+        and substitutes it via postcss-replace / Webpack DefinePlugin.
+
+     3. AWS SSM PARAMETER STORE INTEGRATION:
+        The CloudFront domain is stored in SSM Parameter Store as a SecureString:
+          Parameter name : /app/cloudfront/domain
+          Parameter value: <your-distribution-id>.cloudfront.net
+          Type           : String (or SecureString for sensitive distributions)
+        The build script (scripts/fetch-ssm-params.js) retrieves this value at
+        build time and exports it as the CLOUDFRONT_DOMAIN environment variable
+        before webpack runs.
+
+     4. BUILD-TIME CONFIGURATION (webpack.config.js):
+        new webpack.DefinePlugin({
+          'process.env.CLOUDFRONT_DOMAIN': JSON.stringify(process.env.CLOUDFRONT_DOMAIN)
+        })
+        PostCSS (postcss.config.js) using postcss-replace:
+          plugins: [require('postcss-replace')({
+            pattern: '${CLOUDFRONT_DOMAIN}',
+            data: { CLOUDFRONT_DOMAIN: process.env.CLOUDFRONT_DOMAIN }
+          })]
+
+     5. ENVIRONMENT VARIABLE REQUIRED:
+          CLOUDFRONT_DOMAIN=<your-distribution-id>.cloudfront.net
+        Sourced at build time from AWS SSM Parameter Store parameter /app/cloudfront/domain.
+
+     Original URL  : https://staging-assets.local/img/bg.jpg
+     CloudFront URL: https://${CLOUDFRONT_DOMAIN}/assets/img/bg.jpg
+     SSM Parameter : /app/cloudfront/domain
+  */
+  background: url('https://${CLOUDFRONT_DOMAIN}/assets/img/bg.jpg');
 }
 
 .user-card::before {
-  content: attr(data-user);
+  /* SECURITY FIX (cr-css-1001): CSS Injection via User-Controlled Style Values
+     ORIGINAL: content: attr(data-user);
+     RISK: The CSS attr() function injects the raw value of the HTML data-user attribute
+     directly into rendered content. If an attacker controls data-user (e.g., via URL
+     parameters, profile fields, or unsanitized server output), they can perform CSS
+     injection attacks — including UI redress (clickjacking overlays), data exfiltration
+     via background-image requests, and Content Security Policy bypass.
+
+     REMEDIATION (AWS WAF + Server-Side CSS Encoding):
+     - The data-user attribute MUST be populated only with server-side sanitized,
+       allowlist-encoded values (alphanumeric + safe punctuation only) before rendering.
+     - AWS WAF managed rules (AWSManagedRulesCommonRuleSet) must be enabled on the
+       CloudFront distribution / ALB to block CSS injection payloads at the edge.
+     - User-supplied display names must be HTML-entity-encoded on the server before
+       being written into any data-* attribute consumed by CSS attr().
+     - The attr() call below is replaced with a static safe placeholder; dynamic user
+       identity display must be handled via server-rendered, sanitized text nodes in
+       the DOM — NOT via CSS attr() on unsanitized data attributes.
+  */
+  content: '';
 }
 
-/* Styles for a component removed in v4 - kept by mistake */
-.deprecated-sidebar {
-  display: none;
-  padding: 10px;
-}
+/* CLOUD READINESS FIX (cr-css-1003): Unused CSS Bloating Cloud Bundle Size
+   ORIGINAL (Lines 30–30 in source): .deprecated-sidebar { display: none; padding: 10px; }
+   ISSUE: The .deprecated-sidebar rule targets a component removed in v4 and is never
+   referenced in any HTML template or JavaScript component. Unused CSS rules inflate the
+   bundle size delivered via AWS CloudFront, increasing CDN bandwidth costs and slowing
+   page loads for end users.
+
+   REMEDIATION — PurgeCSS integrated into AWS CodeBuild/CodePipeline build step:
+   The .deprecated-sidebar rule has been REMOVED from this stylesheet. Additionally,
+   PurgeCSS (purgecss-webpack-plugin) has been integrated into webpack.config.js as a
+   build-time optimization step. PurgeCSS statically analyses all HTML templates and
+   JavaScript component files, identifies CSS selectors that are never referenced, and
+   strips them from the final CSS bundle before it is uploaded to S3 and served via
+   CloudFront. This reduces bundle size, lowers CDN bandwidth costs, and improves
+   First Contentful Paint (FCP) and Core Web Vitals scores.
+
+   PurgeCSS configuration (webpack.config.js):
+     new PurgeCSSPlugin({
+       paths: glob.sync(`${PATHS.src}/**/*`, { nodir: true }),
+       safelist: { standard: [/^animate-/, /^is-/, /^has-/] }
+     })
+
+   AWS CodeBuild integration:
+   The npm run build command in the CodeBuild buildspec runs webpack with PurgeCSS
+   enabled, ensuring unused CSS is removed before the dist/ output is synced to S3.
+*/

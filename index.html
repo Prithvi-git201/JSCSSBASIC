@@ -2,17 +2,111 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' https://cdnjs.cloudflare.com https://cdn.example.net; script-src 'self' 'nonce-{{CSP_NONCE}}'">
+  <!--
+    CLOUD READINESS FIX (cr-css-1002): Critical CSS Inlined via AWS Lambda@Edge and CloudFront
+    ─────────────────────────────────────────────────────────────────────────────────────────────
+    The external @import for critical-above-fold.css has been removed from site.css.
+    Instead, a Lambda@Edge function (cloudfront-critical-css-injector) intercepts CloudFront
+    origin responses and injects the critical above-fold CSS as an inline <style> block at the
+    <!-- LAMBDA_EDGE_CRITICAL_CSS_INJECTION_POINT --> marker below.
+
+    Lambda@Edge function (Node.js 18.x, triggered on "origin-response" event):
+    ─────────────────────────────────────────────────────────────────────────────
+    exports.handler = async (event) => {
+      const response = event.Records[0].cf.response;
+      const contentType = (response.headers['content-type'] || [{}])[0].value || '';
+      if (!contentType.includes('text/html')) return response;
+
+      // Critical above-fold CSS — sourced from S3 or embedded in the function
+      const criticalCSS = `
+        /* Critical above-fold styles — injected inline by Lambda@Edge */
+        body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
+        .nav { display: flex; align-items: center; height: 56px; background: #0a2540; }
+        .hero { color: #0a2540; min-height: 400px; }
+        .hero-title { font-size: 2.5rem; font-weight: 700; line-height: 1.2; }
+        .hero-cta { display: inline-block; padding: 12px 24px; background: #635bff; color: #fff; }
+      `;
+
+      const injectionMarker = '<!-- LAMBDA_EDGE_CRITICAL_CSS_INJECTION_POINT -->';
+      const inlineStyleBlock = '<style id="lambda-edge-critical-css">' + criticalCSS + '</style>';
+
+      if (response.body && response.body.includes(injectionMarker)) {
+        response.body = response.body.replace(injectionMarker, inlineStyleBlock);
+      }
+      return response;
+    };
+
+    CloudFront Distribution configuration:
+      - Associate the Lambda@Edge function ARN with the default cache behaviour
+        on the "origin-response" event.
+      - Ensure the Lambda execution role has s3:GetObject on the critical CSS S3 bucket.
+      - The CSP header below includes 'unsafe-inline' for style-src to allow Lambda@Edge
+        injected inline styles. For stricter CSP, use a nonce injected by Lambda@Edge.
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://CLOUDFRONT_DOMAIN_PLACEHOLDER https://cdnjs.cloudflare.com; script-src 'self' 'nonce-{{CSP_NONCE}}'">
   <title>App</title>
+  <!-- LAMBDA_EDGE_CRITICAL_CSS_INJECTION_POINT -->
   <style>
-    /* Critical above-the-fold CSS inlined */
-    body { margin: 0; font-family: system-ui; }
-    .nav { height: 56px; }
+    /* Fallback critical above-the-fold CSS — used when Lambda@Edge injection is unavailable.
+       Lambda@Edge replaces this block at the LAMBDA_EDGE_CRITICAL_CSS_INJECTION_POINT marker above. */
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
+    .nav { display: flex; align-items: center; height: 56px; background: #0a2540; }
+    .hero { color: #0a2540; min-height: 400px; }
+    .hero-title { font-size: 2.5rem; font-weight: 700; line-height: 1.2; }
+    .hero-cta { display: inline-block; padding: 12px 24px; background: #635bff; color: #fff; }
   </style>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css" integrity="sha384-EXAMPLEHASH0001" crossorigin="anonymous">
   <link rel="stylesheet" href="https://cdn.example.net/charts.css">
-  <link rel="stylesheet" href="assets/css/site.css">
-  <link rel="stylesheet" href="assets/css/brand.css">
+  <!--
+    CLOUD READINESS FIX (cr-css-1006): Multiple CSS Files Not Concatenated or HTTP/2
+    ─────────────────────────────────────────────────────────────────────────────────
+    BEFORE: Multiple individual <link> tags (site.css, brand.css) plus loader.css
+    loading 13 separate CSS files via @import — excessive HTTP requests.
+
+    AFTER: Single concatenated bundle served via AWS S3 + CloudFront HTTP/2.
+    All CSS (chunk00–chunk09, deferred.css, site.css, brand.css) is concatenated
+    by the Webpack build pipeline into one hashed file:
+      dist/assets/css/bundle.[contenthash].css
+    Uploaded to S3 and served via CloudFront with:
+      Cache-Control: public, max-age=31536000, immutable
+      HTTP/2 multiplexing + Brotli/gzip compression at the edge.
+
+    The [contenthash] placeholder below is substituted at build time by
+    Webpack's MiniCssExtractPlugin filename template. In production the HTML
+    template is emitted by HtmlWebpackPlugin (or equivalent) with the real hash.
+  -->
+  <link rel="stylesheet"
+        href="https://${CLOUDFRONT_DOMAIN}/assets/css/bundle.[contenthash].css"
+        crossorigin="anonymous">
+  <!--
+    CLOUD READINESS FIX (cr-css-1008): Client-Only CSS Loaded After Hydration
+    ─────────────────────────────────────────────────────────────────────────────
+    BEFORE: .hydrated-widget and .ssr-hidden styles were injected only after
+    client-side JavaScript hydration (via conditional import in styles.js),
+    making them unavailable during server-side rendering and causing FOUC.
+
+    AFTER: A Lambda@Edge function (cloudfront-ssr-hydration-css-injector) intercepts
+    CloudFront origin responses and inlines the pre-built SSR hydration CSS bundle
+    (fetched from S3: s3://<bucket>/assets/css/ssr-hydration.css) as a <style> block
+    at the <!-- LAMBDA_EDGE_SSR_HYDRATION_CSS_INJECTION_POINT --> marker below.
+    This ensures hydration styles are present in the server-rendered HTML payload,
+    eliminating the style mismatch between server-rendered and client-hydrated content.
+
+    Lambda@Edge function: cloudfront-ssr-hydration-css-injector
+    Trigger             : CloudFront "origin-response" event
+    S3 source           : s3://<SSR_CSS_BUCKET>/assets/css/ssr-hydration.css
+    CloudFront event    : origin-response (injects before response reaches browser)
+    Environment vars    : SSR_CSS_BUCKET, CLOUDFRONT_DOMAIN, AWS_REGION
+
+    Fallback inline styles below are used when Lambda@Edge injection is unavailable.
+  -->
+  <!-- LAMBDA_EDGE_SSR_HYDRATION_CSS_INJECTION_POINT -->
+  <style id="ssr-hydration-css-fallback">
+    /* SSR hydration fallback styles — inlined by Lambda@Edge in production.
+       These fallback styles prevent FOUC when Lambda@Edge is unavailable. */
+    .hydrated-widget { opacity: 1; transition: opacity 0.3s; }
+    .ssr-hidden { display: block; color: var(--hydrated-color); }
+  </style>
 </head>
 <body>
   <script type="importmap" nonce="{{CSP_NONCE}}">
